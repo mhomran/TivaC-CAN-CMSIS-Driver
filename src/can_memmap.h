@@ -20,6 +20,18 @@
 #define CAN0 ((volatile CanHandle_t*) CAN0_BASE)
 #define CAN1 ((volatile CanHandle_t*) CAN1_BASE)
 
+#define SYSCTL_BASE 0x400FE000
+#define SRCAN_OFFSET 0x534
+#define PRCAN_OFFSET 0xA34
+#define RCGCCAN_OFFSET 0x634
+
+#define SRCAN *((volatile uint32_t*)(SYSCTL_BASE+SRCAN_OFFSET))
+#define PRCAN *((volatile uint32_t*)(SYSCTL_BASE+PRCAN_OFFSET))
+#define RCGCCAN *((volatile uint32_t*)(SYSCTL_BASE+RCGCCAN_OFFSET))
+
+#define PRCAN_CAN0 0
+#define SRCAN_CAN0 0
+#define RCGCCAN_CAN0 0
 typedef struct {
   uint32_t CRQ;
   uint32_t CMSK;

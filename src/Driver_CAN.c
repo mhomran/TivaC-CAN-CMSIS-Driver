@@ -17,8 +17,15 @@
  */
  
 #include "Driver_CAN.h"
+#include "can_memmap.h"
 
 #define ARM_CAN_DRV_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(1,0) // CAN driver version
+
+//typedefs
+typedef enum {
+  CAN_FLAG_SET,
+  CAN_FLAG_CLEAR,
+} CanFlag_t;
 
 // Driver Version
 static const ARM_DRIVER_VERSION can_driver_version = { ARM_CAN_API_VERSION, ARM_CAN_DRV_VERSION };
@@ -28,9 +35,9 @@ static const ARM_CAN_CAPABILITIES can_driver_capabilities = {
   32U,  // Number of CAN Objects available
   0U,   // Does not support reentrant calls to ARM_CAN_MessageSend, ARM_CAN_MessageRead, ARM_CAN_ObjectConfigure and abort message sending used by ARM_CAN_Control.
   0U,   // Does not support CAN with Flexible Data-rate mode (CAN_FD)
-  0U,   // Does not support restricted operation mode
+  1U,   // Does not support restricted operation mode
   0U,   // Does not support bus monitoring mode
-  0U,   // Does not support internal loopback mode
+  1U,   // Does not support internal loopback mode
   0U,   // Does not support external loopback mode
   0U    // Reserved (must be zero)
 };
@@ -41,9 +48,9 @@ static const ARM_CAN_OBJ_CAPABILITIES can_object_capabilities = {
   1U,   // Object supports reception
   0U,   // Object does not support RTR reception and automatic Data transmission
   0U,   // Object does not support RTR transmission and automatic Data reception
-  0U,   // Object does not allow assignment of multiple filters to it
+  1U,   // Object does not allow assignment of multiple filters to it
   0U,   // Object does not support exact identifier filtering
-  0U,   // Object does not support range identifier filtering
+  1U,   // Object does not support range identifier filtering
   0U,   // Object does not support mask identifier filtering
   0U,   // Object can not buffer messages
   0U    // Reserved (must be zero)
@@ -55,7 +62,16 @@ static ARM_CAN_SignalUnitEvent_t   CAN_SignalUnitEvent    = NULL;
 static ARM_CAN_SignalObjectEvent_t CAN_SignalObjectEvent  = NULL;
 
 //
-//   Functions
+//   Functions prototypes
+//
+int32_t 
+Can_SetTimeout(volatile uint32_t* Reg, 
+              uint32_t FlagPos, 
+              CanFlag_t SetClr, 
+              uint32_t Timeout);
+
+//
+//   Functions definitions
 //
 
 static ARM_DRIVER_VERSION ARM_CAN_GetVersion (void) {
@@ -76,32 +92,30 @@ static int32_t ARM_CAN_Initialize (ARM_CAN_SignalUnitEvent_t   cb_unit_event,
   CAN_SignalUnitEvent   = cb_unit_event;
   CAN_SignalObjectEvent = cb_object_event;
 
-  // Add code for pin, memory, RTX objects initialization
-  // ..
-
   can_driver_initialized = 1U;
 
   return ARM_DRIVER_OK;
 }
 
 static int32_t ARM_CAN_Uninitialize (void) {
-
-  // Add code for pin, memory, RTX objects de-initialization
-  // ..
-
   can_driver_initialized = 0U;
 
   return ARM_DRIVER_OK;
 }
 
 static int32_t ARM_CAN_PowerControl (ARM_POWER_STATE state) {
+
   switch (state) {
     case ARM_POWER_OFF:
       can_driver_powered = 0U;
       // Add code to disable interrupts and put peripheral into reset mode,
       // and if possible disable clock
       // ..
+      SRCAN |= 1 << SRCAN_CAN0; //reset
+      Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_SET, 0xFFFF);
 
+      RCGCCAN &= ~(1 << RCGCCAN_CAN0); //disable clock
+      Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_CLEAR, 0xFFFF);
       break;
 
     case ARM_POWER_FULL:
@@ -111,8 +125,13 @@ static int32_t ARM_CAN_PowerControl (ARM_POWER_STATE state) {
       // Add code to enable clocks, reset variables enable interrupts
       // and put peripheral into operational
       // ..
+      RCGCCAN |= (1 << 0); //enable clock
+      Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_SET, 0xFFFF);
 
       can_driver_powered = 1U;
+      can_driver_initialized = 0U;
+      CAN_SignalUnitEvent    = NULL;
+      CAN_SignalObjectEvent  = NULL;
       break;
 
     case ARM_POWER_LOW:
@@ -288,6 +307,45 @@ static ARM_CAN_STATUS ARM_CAN_GetStatus (void) {
   // ..
 }
 
+/**
+ * @brief Set timeout for a specifc flag to be cleared or set
+ * 
+ * @param Reg 
+ * @param FlagPos 
+ * @param SetClr The flag should be set or cleared
+ * @param Timeout 
+ * @return int32_t 
+ */
+int32_t 
+Can_SetTimeout(volatile uint32_t* Reg, 
+              uint32_t FlagPos, 
+              CanFlag_t SetClr, 
+              uint32_t Timeout)
+{
+  uint32_t timeout = 0xFFFF;
+  if(SetClr == CAN_FLAG_CLEAR)
+    {
+      while(timeout != 0 && (*Reg & (1 << FlagPos)))
+        {
+          timeout--;
+        }
+    }
+  else 
+    {
+      while(timeout != 0 && !(*Reg & (1 << FlagPos)))
+        {
+          timeout--;
+        }
+    }
+  if(timeout == 0) 
+    {
+      return ARM_DRIVER_ERROR_TIMEOUT;
+    }
+  else 
+    {
+      return ARM_DRIVER_OK;
+    }
+}
 
 // IRQ handlers
 // Add interrupt routines to handle transmission, reception, error and status interrupts
