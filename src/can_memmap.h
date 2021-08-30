@@ -32,6 +32,18 @@
 #define PRCAN_CAN0 0
 #define SRCAN_CAN0 0
 #define RCGCCAN_CAN0 0
+
+#define CANBIT_BRP_Pos 0
+#define CANBIT_BRP_Msk (0x3F << CANBIT_BRP_Pos)
+#define CANBIT_SJW_Pos 6
+#define CANBIT_SJW_Msk (0x3 << CANBIT_SJW_Pos)
+#define CANBIT_TSEG1_Pos 8
+#define CANBIT_TSEG1_Msk (0xF << CANBIT_TSEG1_Pos)
+#define CANBIT_TSEG2_Pos 12
+#define CANBIT_TSEG2_Msk (0x7 << CANBIT_TSEG2_Pos)
+#define CAN_CTL_INIT_Pos 0
+#define CAN_CTL_CCE_Pos 6
+
 typedef struct {
   uint32_t CRQ;
   uint32_t CMSK;

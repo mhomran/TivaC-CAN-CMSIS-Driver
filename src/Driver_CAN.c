@@ -20,6 +20,7 @@
 #include "can_memmap.h"
 
 #define ARM_CAN_DRV_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(1,0) // CAN driver version
+#define SYSCLK (16000000UL)
 
 //typedefs
 typedef enum {
@@ -29,6 +30,8 @@ typedef enum {
 
 // Driver Version
 static const ARM_DRIVER_VERSION can_driver_version = { ARM_CAN_API_VERSION, ARM_CAN_DRV_VERSION };
+static inline uint32_t Min(uint32_t A, uint32_t B);
+static inline uint32_t Max(uint32_t A, uint32_t B);
 
 // Driver Capabilities
 static const ARM_CAN_CAPABILITIES can_driver_capabilities = {
@@ -154,6 +157,60 @@ static int32_t ARM_CAN_SetBitrate (ARM_CAN_BITRATE_SELECT select, uint32_t bitra
   // Add code to setup peripheral parameters to generate specified bitrate
   // with specified bit segments
   // ..
+  uint32_t BRP;
+  uint32_t Phase1;
+  uint32_t Phase2;
+  uint32_t Prop;
+  uint32_t SJW;
+  uint32_t N;
+  
+  //for testing switch to initialization mode
+  CAN0->CTL.CTL |= 1 << CAN_CTL_INIT_Pos || 1 << CAN_CTL_CCE_Pos;
+
+  if(bitrate == 0 || bitrate > (2000000UL))
+    {
+      return ARM_DRIVER_ERROR_PARAMETER;
+    }
+
+  Prop = (bit_segments & ARM_CAN_BIT_PROP_SEG_Msk) >> ARM_CAN_BIT_PROP_SEG_Pos;
+  Phase1 = (bit_segments & ARM_CAN_BIT_PHASE_SEG1_Msk) >> ARM_CAN_BIT_PHASE_SEG1_Pos;
+  Phase2 = (bit_segments & ARM_CAN_BIT_PHASE_SEG2_Msk) >> ARM_CAN_BIT_PHASE_SEG2_Pos;
+  SJW = (bit_segments & ARM_CAN_BIT_SJW_Msk) >> ARM_CAN_BIT_SJW_Pos;
+  
+  if((8 < Prop || Prop < 1)               ||
+     (8 < Phase1 || Phase1 < 1)           ||
+     (8 < Phase2 || Phase2 < 1)           ||
+     (Phase2 > Max(Phase1, 2))            ||
+     (4 < SJW || SJW < 1)                 ||
+     (SJW > Min(Min(Phase1, Phase2), 4)))
+    {
+      return ARM_DRIVER_ERROR_PARAMETER;
+    }
+
+  N = 1 + Prop + Phase1 + Phase2;
+  BRP = (SYSCLK / bitrate / N) - 1;
+  if(BRP > 1024)
+    {
+      return ARM_CAN_INVALID_BITRATE;
+    }
+  else if (BRP > 64)
+    {
+      CAN0->CTL.BRPE = (BRP - 1) >> 6;
+      CAN0->CTL.BIT &= ~(CANBIT_BRP_Msk);
+      CAN0->CTL.BIT |= (((BRP - 1) & 0x3F) << CANBIT_BRP_Pos);
+    }
+  else 
+    {
+      CAN0->CTL.BIT &= ~(CANBIT_BRP_Msk);
+      CAN0->CTL.BIT |= ((BRP - 1) << CANBIT_BRP_Pos);
+    }
+  
+  CAN0->CTL.BIT &= ~(CANBIT_TSEG1_Msk);
+  CAN0->CTL.BIT |= ((Phase1 + Prop - 1) << CANBIT_TSEG1_Pos);
+  CAN0->CTL.BIT &= ~(CANBIT_TSEG2_Msk);
+  CAN0->CTL.BIT |= ((Phase2 - 1) << CANBIT_TSEG2_Pos);
+  CAN0->CTL.BIT &= ~(CANBIT_SJW_Msk);
+  CAN0->CTL.BIT |= ((SJW - 1) << CANBIT_SJW_Pos);
 
   return ARM_DRIVER_OK;
 }
@@ -345,6 +402,18 @@ Can_SetTimeout(volatile uint32_t* Reg,
     {
       return ARM_DRIVER_OK;
     }
+}
+
+static inline uint32_t 
+Min(uint32_t A, uint32_t B)
+{
+  return A < B ? A : B;
+}
+
+static inline uint32_t 
+Max(uint32_t A, uint32_t B)
+{
+  return A > B ? A : B;
 }
 
 // IRQ handlers
