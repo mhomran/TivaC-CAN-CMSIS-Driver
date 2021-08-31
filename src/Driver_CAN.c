@@ -23,7 +23,10 @@
 #define SYSCLK (16000000UL)
 #define MAX_STD_ID 0x7FF
 #define MAX_XTD_ID 0x1FFFFFFF
-#define MAX_ObjIdx 31
+#define MAX_OBJ_IDX 31
+#define MAX_OBJ_NUM 32
+#define VALID_FILTER 1
+#define INVALID_FILTER 0
 
 //typedefs
 typedef enum {
@@ -38,11 +41,20 @@ typedef enum {
   MSG_OBJ_MAX
 } MsgObjWR_t;
 
+typedef struct {
+  uint32_t Id;
+  uint32_t Mask;
+  uint32_t Valid;
+} CanFilter_t;
+
 // Driver Version
 static const ARM_DRIVER_VERSION can_driver_version = { ARM_CAN_API_VERSION, ARM_CAN_DRV_VERSION };
 static inline uint32_t Min(uint32_t A, uint32_t B);
 static inline uint32_t Max(uint32_t A, uint32_t B);
-static int32_t Can_SetFilterExactId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t id);
+static int32_t Can_SetFilterExactId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id);
+static int32_t Can_RemoveFilterExactId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id);
+static int32_t Can_SetFilterMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id, uint32_t Mask);
+static int32_t Can_RemoveFilterMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id, uint32_t Mask);
 static int32_t Can_WriteReadMsgObj(volatile CanHandle_t* CAN, MsgObjWR_t Flag, uint32_t ObjIdx, uint32_t Mask);
 static int32_t Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdId);
 static int32_t Can_SetStdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdId);
@@ -54,6 +66,14 @@ ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
                         ARM_CAN_FILTER_OPERATION operation,
                         uint32_t id,
                         uint32_t arg);
+static int32_t
+ARM_CAN0_ObjectSetFilter(uint32_t ObjIdx,
+                         ARM_CAN_FILTER_OPERATION operation,
+                         uint32_t id,
+                         uint32_t arg);
+static int32_t ARM_CAN_SetMode (volatile CanHandle_t* CAN, ARM_CAN_MODE mode);
+static int32_t ARM_CAN0_SetMode (ARM_CAN_MODE mode);
+
 // Driver Capabilities
 static const ARM_CAN_CAPABILITIES can_driver_capabilities = {
   32U,  // Number of CAN Objects available
@@ -84,6 +104,7 @@ static uint8_t                     can_driver_powered     = 0U;
 static uint8_t                     can_driver_initialized = 0U;
 static ARM_CAN_SignalUnitEvent_t   CAN_SignalUnitEvent    = NULL;
 static ARM_CAN_SignalObjectEvent_t CAN_SignalObjectEvent  = NULL;
+static CanFilter_t gFilters[MAX_OBJ_NUM];
 
 //
 //   Functions prototypes
@@ -145,7 +166,8 @@ static int32_t ARM_CAN_PowerControl (ARM_POWER_STATE state) {
     case ARM_POWER_FULL:
       if (can_driver_initialized == 0U) { return ARM_DRIVER_ERROR; }
       if (can_driver_powered     != 0U) { return ARM_DRIVER_OK;    }
-
+      
+      uint8_t i;
       // Add code to enable clocks, reset variables enable interrupts
       // and put peripheral into operational
       // ..
@@ -156,6 +178,10 @@ static int32_t ARM_CAN_PowerControl (ARM_POWER_STATE state) {
       can_driver_initialized = 0U;
       CAN_SignalUnitEvent    = NULL;
       CAN_SignalObjectEvent  = NULL;
+      for(i = 0; i < MAX_OBJ_NUM; i++)
+        {
+          gFilters[i].Valid = INVALID_FILTER;
+        }
       break;
 
     case ARM_POWER_LOW:
@@ -233,7 +259,13 @@ static int32_t ARM_CAN_SetBitrate (ARM_CAN_BITRATE_SELECT select, uint32_t bitra
   return ARM_DRIVER_OK;
 }
 
-static int32_t ARM_CAN_SetMode (ARM_CAN_MODE mode) {
+static int32_t 
+ARM_CAN0_SetMode(ARM_CAN_MODE mode) 
+{
+  return ARM_CAN_SetMode(CAN0, mode);
+}
+
+static int32_t ARM_CAN_SetMode (volatile CanHandle_t* CAN, ARM_CAN_MODE mode) {
 
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
@@ -241,12 +273,12 @@ static int32_t ARM_CAN_SetMode (ARM_CAN_MODE mode) {
     case ARM_CAN_MODE_INITIALIZATION:
       // Add code to put peripheral into initialization mode
       // ..
-      CAN0->CTL.CTL |= 1 << CANCTL_INIT_Pos | 1 << CANCTL_CCE_Pos;
+      CAN->CTL.CTL |= CANCTL_INIT_Msk | CANCTL_CCE_Msk;
       break;
     case ARM_CAN_MODE_NORMAL:
       // Add code to put peripheral into normal operation mode
       // ..
-      CAN0->CTL.CTL &= ~(1 << CANCTL_INIT_Pos);
+      CAN->CTL.CTL &= ~CANCTL_INIT_Msk;
       break;
     case ARM_CAN_MODE_RESTRICTED:
       // Add code to put peripheral into restricted operation mode
@@ -263,9 +295,9 @@ static int32_t ARM_CAN_SetMode (ARM_CAN_MODE mode) {
     case ARM_CAN_MODE_LOOPBACK_EXTERNAL:
       // Add code to put peripheral into external loopback mode
       // ..
-      CAN0->CTL.CTL |= 1 << CANCTL_TEST_Pos;
-      CAN0->CTL.TST |= 1 << CANTST_LBACK_Pos;
-      CAN0->CTL.CTL &= ~(1 << CANCTL_INIT_Pos);
+      CAN->CTL.CTL |= CANCTL_TEST_Msk;
+      CAN->CTL.TST |= CANTST_LBACK_Msk;
+      CAN->CTL.CTL &= ~CANCTL_INIT_Msk;
       break;
     default:
       return ARM_DRIVER_ERROR_PARAMETER;
@@ -300,24 +332,15 @@ ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
   switch (operation) {
     case ARM_CAN_FILTER_ID_EXACT_ADD:
       return Can_SetFilterExactId(CAN, ObjIdx, id);
-    case ARM_CAN_FILTER_ID_MASKABLE_ADD:
-      // Add code to setup peripheral to receive messages with specified maskable ID
-      break;
-    case ARM_CAN_FILTER_ID_RANGE_ADD:
-      // Add code to setup peripheral to receive messages within specified range of IDs
-      break;
     case ARM_CAN_FILTER_ID_EXACT_REMOVE:
-      // Add code to remove specified exact ID from being received by peripheral
-      break;
+      return Can_RemoveFilterExactId(CAN, ObjIdx, id);
+    case ARM_CAN_FILTER_ID_MASKABLE_ADD:
+      return Can_SetFilterMask(CAN, ObjIdx, id, arg);
     case ARM_CAN_FILTER_ID_MASKABLE_REMOVE:
-      // Add code to remove specified maskable ID from being received by peripheral
-      break;
-    case ARM_CAN_FILTER_ID_RANGE_REMOVE:
-      // Add code to remove specified range of IDs from being received by peripheral
-      break;
+      return Can_RemoveFilterMask(CAN, ObjIdx, id, arg);
+    default:
+      return ARM_DRIVER_ERROR_UNSUPPORTED;
   }
-
-  return ARM_DRIVER_OK;
 }
 
 static int32_t ARM_CAN_ObjectConfigure (uint32_t ObjIdx, ARM_CAN_OBJ_CONFIG obj_cfg) {
@@ -455,11 +478,41 @@ Max(uint32_t A, uint32_t B)
 }
 
 static int32_t 
-Can_SetFilterExactId(volatile CanHandle_t* CAN,
+Can_RemoveFilterMask(volatile CanHandle_t* CAN,
+                        uint32_t ObjIdx,
+                        uint32_t Id,
+                        uint32_t Mask)
+{
+  if(gFilters[ObjIdx].Valid == INVALID_FILTER) return ARM_DRIVER_ERROR_SPECIFIC;
+  if(gFilters[ObjIdx].Id != Id) return ARM_DRIVER_ERROR_SPECIFIC;
+  if(gFilters[ObjIdx].Mask != Mask) return ARM_DRIVER_ERROR_SPECIFIC;
+  gFilters[ObjIdx].Valid = INVALID_FILTER;
+
+  return ARM_DRIVER_OK;
+}
+
+static int32_t 
+Can_RemoveFilterExactId(volatile CanHandle_t* CAN,
+                        uint32_t ObjIdx,
+                        uint32_t Id)
+{
+  if(gFilters[ObjIdx].Valid == INVALID_FILTER) return ARM_DRIVER_ERROR_SPECIFIC;
+  if(gFilters[ObjIdx].Id != gFilters[ObjIdx].Mask) return ARM_DRIVER_ERROR_SPECIFIC;
+  if(gFilters[ObjIdx].Id != Id) return ARM_DRIVER_ERROR_SPECIFIC;
+  gFilters[ObjIdx].Valid = INVALID_FILTER;
+
+  return ARM_DRIVER_OK;
+}
+
+static int32_t 
+Can_SetFilterMask(volatile CanHandle_t* CAN,
                      uint32_t ObjIdx,
-                     uint32_t id)
+                     uint32_t Id,
+                     uint32_t Mask)
 {
   int32_t state;
+
+  if(gFilters[ObjIdx].Valid == VALID_FILTER) return ARM_DRIVER_ERROR_BUSY;
 
   state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx, CANIFCMSK_CONTROL_Msk);
   if(state != ARM_DRIVER_OK) return state;
@@ -469,20 +522,20 @@ Can_SetFilterExactId(volatile CanHandle_t* CAN,
   //don't filter based on the message object direction
   CAN->IF1.MSK2 &= ~CANIFMSK2_MDIR_Msk;
 
-  if(id & ARM_CAN_ID_IDE_Msk)
+  if(Id & ARM_CAN_ID_IDE_Msk)
     {
-      state = Can_SetXtdMask(CAN, ObjIdx, MAX_XTD_ID);
+      state = Can_SetXtdMask(CAN, ObjIdx, Mask);
       if(state != ARM_DRIVER_OK) return state;
 
-      state = Can_SetXtdId(CAN, ObjIdx, id & ~(ARM_CAN_ID_IDE_Msk));
+      state = Can_SetXtdId(CAN, ObjIdx, Id & ~(ARM_CAN_ID_IDE_Msk));
       if(state != ARM_DRIVER_OK) return state;
     }
   else
     {
-      state = Can_SetStdMask(CAN, ObjIdx, MAX_STD_ID);
+      state = Can_SetStdMask(CAN, ObjIdx, Mask);
       if(state != ARM_DRIVER_OK) return state;
 
-      state = Can_SetStdId(CAN, ObjIdx, id);
+      state = Can_SetStdId(CAN, ObjIdx, Id);
       if(state != ARM_DRIVER_OK) return state;
     }
 
@@ -493,7 +546,30 @@ Can_SetFilterExactId(volatile CanHandle_t* CAN,
   CANIFCMSK_CONTROL_Msk | CANIFCMSK_ARB_Msk | CANIFCMSK_MASK_Msk);
   if(state != ARM_DRIVER_OK) return state;
 
+  gFilters[ObjIdx].Valid = VALID_FILTER;
+  gFilters[ObjIdx].Id = Id;
+  gFilters[ObjIdx].Mask = Mask;
+
   return ARM_DRIVER_OK;
+}
+
+static int32_t 
+Can_SetFilterExactId(volatile CanHandle_t* CAN,
+                     uint32_t ObjIdx,
+                     uint32_t Id)
+{
+  int32_t state;
+
+  if(Id & ARM_CAN_ID_IDE_Msk)
+    {
+      state = Can_SetFilterMask(CAN, ObjIdx, Id, MAX_XTD_ID);
+    }
+  else
+    {
+      state = Can_SetFilterMask(CAN, ObjIdx, Id, MAX_STD_ID);
+    }
+
+  return state;
 }
 
 static int32_t 
@@ -598,7 +674,7 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN_PowerControl,
   ARM_CAN_GetClock,
   ARM_CAN_SetBitrate,
-  ARM_CAN_SetMode,
+  ARM_CAN0_SetMode,
   ARM_CAN_ObjectGetCapabilities,
   ARM_CAN0_ObjectSetFilter,
   ARM_CAN_ObjectConfigure,

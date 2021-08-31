@@ -43,10 +43,14 @@
 #define CANBIT_TSEG2_Msk (0x7 << CANBIT_TSEG2_Pos)
 
 #define CANCTL_INIT_Pos 0
+#define CANCTL_INIT_Msk (1 << CANCTL_INIT_Pos)
 #define CANCTL_CCE_Pos 6
+#define CANCTL_CCE_Msk (1 << CANCTL_CCE_Pos)
 #define CANCTL_TEST_Pos 7
+#define CANCTL_TEST_Msk (1 << CANCTL_TEST_Pos)
 
 #define CANTST_LBACK_Pos 4
+#define CANTST_LBACK_Msk (1 << CANTST_LBACK_Pos)
 
 #define CANIFCMSK_DATAB_Pos 0
 #define CANIFCMSK_DATAB_Msk (1 << CANIFCMSK_DATAB_Pos)
