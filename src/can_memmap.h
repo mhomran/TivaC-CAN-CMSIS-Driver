@@ -41,8 +41,78 @@
 #define CANBIT_TSEG1_Msk (0xF << CANBIT_TSEG1_Pos)
 #define CANBIT_TSEG2_Pos 12
 #define CANBIT_TSEG2_Msk (0x7 << CANBIT_TSEG2_Pos)
-#define CAN_CTL_INIT_Pos 0
-#define CAN_CTL_CCE_Pos 6
+
+#define CANCTL_INIT_Pos 0
+#define CANCTL_CCE_Pos 6
+#define CANCTL_TEST_Pos 7
+
+#define CANTST_LBACK_Pos 4
+
+#define CANIFCMSK_DATAB_Pos 0
+#define CANIFCMSK_DATAB_Msk (1 << CANIFCMSK_DATAB_Pos)
+#define CANIFCMSK_DATAA_Pos 1
+#define CANIFCMSK_DATAA_Msk (1 << CANIFCMSK_DATAA_Pos)
+#define CANIFCMSK_NEWDAT_TXRQST_Pos 2
+#define CANIFCMSK_NEWDAT_Msk (1 << CANIFCMSK_NEWDAT_Pos)
+#define CANIFCMSK_CLRINTPND_Pos 3
+#define CANIFCMSK_CLRINTPND_Msk (1 << CANIFCMSK_CLRINTPND_Pos)
+#define CANIFCMSK_CONTROL_Pos 4
+#define CANIFCMSK_CONTROL_Msk (1 << CANIFCMSK_CONTROL_Pos)
+#define CANIFCMSK_ARB_Pos 5
+#define CANIFCMSK_ARB_Msk (1 << CANIFCMSK_ARB_Pos)
+#define CANIFCMSK_MASK_Pos 6
+#define CANIFCMSK_MASK_Msk (1 << CANIFCMSK_MASK_Pos)
+#define CANIFCMSK_WRNRD_Pos 7
+#define CANIFCMSK_WRNRD_Msk (1 << CANIFCMSK_WRNRD_Pos)
+
+
+#define CANIFCRQ_MNUM_Pos 0
+#define CANIFCRQ_MNUM_Msk (0x3F << CANIFCRQ_MNUM_Pos)
+#define CANIFCRQ_BUSY_Pos 15
+
+#define CANIFMSK1_XTD_Pos 0
+#define CANIFMSK1_XTD_Msk (0xFFFF << CANIFMSK1_XTD_Pos)
+#define CANIFMSK2_XTD_Pos 0
+#define CANIFMSK2_STD_Pos 2
+#define CANIFMSK2_ID_Pos 0
+#define CANIFMSK2_ID_Msk (0x1FFF << CANIFMSK2_ID_Pos)
+#define CANIFMSK2_MDIR_Pos 14
+#define CANIFMSK2_MDIR_Msk (0x1 << CANIFMSK2_MDIR_Pos)
+#define CANIFMSK2_MXTD_Pos 15
+#define CANIFMSK2_MXTD_Msk (0x1 << CANIFMSK2_MXTD_Pos)
+
+#define CANIFARB1_XTD_Pos 0
+#define CANIFARB1_XTD_Msk (0xFFFF << CANIFMSK1_XTD_Pos)
+#define CANIFARB2_XTD_Pos 0
+#define CANIFARB2_STD_Pos 2
+#define CANIFARB2_ID_Pos 0
+#define CANIFARB2_ID_Msk (0x1FFF << CANIFMSK2_ID_Pos)
+#define CANIFARB2_MDIR_Pos 14
+#define CANIFARB2_MDIR_Msk (0x1 << CANIFARB2_MDIR_Pos)
+#define CANIFARB2_MXTD_Pos 15
+#define CANIFARB2_MXTD_Msk (0x1 << CANIFARB2_MXTD_Pos)
+
+
+#define CANIFMCTL_DLC_Pos 0
+#define CANIFMCTL_DLC_Msk (0xF << CANIFMCTL_DLC_Pos)
+#define CANIFMCTL_EOB_Pos 7
+#define CANIFMCTL_EOB_Msk (0x1 << CANIFMCTL_EOB_Pos)
+#define CANIFMCTL_TXRQST_Pos 8
+#define CANIFMCTL_TXRQST_Msk (0x1 << CANIFMCTL_TXRQST_Pos)
+#define CANIFMCTL_RMTEN_Pos 9
+#define CANIFMCTL_RMTEN_Msk (0x1 << CANIFMCTL_RMTEN_Pos)
+#define CANIFMCTL_RXIE_Pos 10
+#define CANIFMCTL_RXIE_Msk (0x1 << CANIFMCTL_RXIE_Pos)
+#define CANIFMCTL_TXIE_Pos 11
+#define CANIFMCTL_TXIE_Msk (0x1 << CANIFMCTL_TXIE_Pos)
+#define CANIFMCTL_UMASK_Pos 12
+#define CANIFMCTL_UMASK_Msk (0x1 << CANIFMCTL_UMASK_Pos)
+#define CANIFMCTL_INTPND_Pos 13
+#define CANIFMCTL_INTPND_Msk (0x1 << CANIFMCTL_INTPND_Pos)
+#define CANIFMCTL_MSGLST_Pos 14
+#define CANIFMCTL_MSGLST_Msk (0x1 << CANIFMCTL_MSGLST_Pos)
+#define CANIFMCTL_NEWDAT_Pos 15
+#define CANIFMCTL_NEWDAT_Msk (0x1 << CANIFMCTL_NEWDAT_Pos)
 
 typedef struct {
   uint32_t CRQ;
@@ -84,10 +154,11 @@ typedef struct {
 
 typedef struct {
   CanCtl_t CTL;
+  uint32_t reserved0;
   CanIf_t IF1;
-  uint32_t reserved0[0x37];
+  uint32_t reserved1[0x37];
   CanIf_t IF2;
-  uint32_t reserved1[0x57];
+  uint32_t reserved2[0x57];
   CanMsgObj_t MSGOBJ;
 } CanHandle_t;
 
