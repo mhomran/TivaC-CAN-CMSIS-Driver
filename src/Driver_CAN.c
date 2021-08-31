@@ -73,7 +73,13 @@ ARM_CAN0_ObjectSetFilter(uint32_t ObjIdx,
                          uint32_t arg);
 static int32_t ARM_CAN_SetMode (volatile CanHandle_t* CAN, ARM_CAN_MODE mode);
 static int32_t ARM_CAN0_SetMode (ARM_CAN_MODE mode);
-
+static int32_t 
+ARM_CAN0_ObjectConfigure (uint32_t ObjIdx, 
+                         ARM_CAN_OBJ_CONFIG ObjCfg);
+static int32_t 
+ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
+                         uint32_t ObjIdx, 
+                         ARM_CAN_OBJ_CONFIG ObjCfg); 
 // Driver Capabilities
 static const ARM_CAN_CAPABILITIES can_driver_capabilities = {
   32U,  // Number of CAN Objects available
@@ -343,33 +349,53 @@ ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
   }
 }
 
-static int32_t ARM_CAN_ObjectConfigure (uint32_t ObjIdx, ARM_CAN_OBJ_CONFIG obj_cfg) {
+static int32_t 
+ARM_CAN0_ObjectConfigure (uint32_t ObjIdx, 
+                         ARM_CAN_OBJ_CONFIG ObjCfg) 
+{
+  ARM_CAN_ObjectConfigure(CAN0, ObjIdx, ObjCfg);
+}
+static int32_t 
+ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
+                         uint32_t ObjIdx, 
+                         ARM_CAN_OBJ_CONFIG ObjCfg) 
+{
+  int32_t state;
 
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
-  switch (obj_cfg) {
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx,
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk);
+  if(state != ARM_DRIVER_OK) return state;
+
+  switch (ObjCfg) {
     case ARM_CAN_OBJ_INACTIVE:
-      // Deactivate object
-      // ..
+      CAN->IF1.ARB2 &= ~CANIFARB2_MSGVAL_Msk;
       break;
     case ARM_CAN_OBJ_RX_RTR_TX_DATA:
-      // Setup object to automatically return data when RTR with it's ID is received
-      // ..
+      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk | CANIFARB2_DIR_Msk;
+      CAN->IF1.MCTL |= CANIFMCTL_RMTEN_Msk;
       break;
     case ARM_CAN_OBJ_TX_RTR_RX_DATA:
-      // Setup object to send RTR and receive data response
-      // ..
+      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
+      CAN->IF1.ARB2 &= ~CANIFARB2_DIR_Msk;
       break;
     case ARM_CAN_OBJ_TX:
-      // Setup object to be used for sending messages
-      // ..
+      CAN->IF1.ARB2 |= CANIFARB2_DIR_Msk | CANIFARB2_MSGVAL_Msk;
+      CAN->IF1.MCTL &= ~(CANIFMCTL_RMTEN_Msk | CANIFMCTL_UMASK_Msk);
       break;
     case ARM_CAN_OBJ_RX:
-      // Setup object to be used for receiving messages
-      // ..
+      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
+      CAN->IF1.ARB2 &= ~CANIFARB2_DIR_Msk;
       break;
+    default:
+      return ARM_DRIVER_ERROR_UNSUPPORTED;
   }
 
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx,
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk);
+  if(state != ARM_DRIVER_OK) return state;
+  
   return ARM_DRIVER_OK;
 }
 
@@ -604,7 +630,7 @@ Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdId)
       CAN->IF1.ARB2 &= ~CANIFARB2_ID_Msk;
       CAN->IF1.ARB1 |= (XtdId & 0xFFFF) << CANIFARB1_XTD_Pos;
       CAN->IF1.ARB2 |= (XtdId >> 16) << CANIFARB2_XTD_Pos;
-      CAN->IF1.ARB2 |= CANIFARB2_MXTD_Msk;
+      CAN->IF1.ARB2 |= CANIFARB2_XTD_Msk;
       return ARM_DRIVER_OK;
     }
 }
@@ -620,7 +646,7 @@ Can_SetStdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdId)
     {
       CAN->IF1.ARB2 &= ~CANIFARB2_ID_Msk;
       CAN->IF1.ARB2 |= StdId << CANIFARB2_STD_Pos;
-      CAN->IF1.ARB2 &= ~(1 << CANIFARB2_MXTD_Pos);
+      CAN->IF1.ARB2 &= ~(1 << CANIFARB2_XTD_Pos);
       return ARM_DRIVER_OK;
     }
 }
@@ -677,7 +703,7 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN0_SetMode,
   ARM_CAN_ObjectGetCapabilities,
   ARM_CAN0_ObjectSetFilter,
-  ARM_CAN_ObjectConfigure,
+  ARM_CAN0_ObjectConfigure,
   ARM_CAN_MessageSend,
   ARM_CAN_MessageRead,
   ARM_CAN_Control,
