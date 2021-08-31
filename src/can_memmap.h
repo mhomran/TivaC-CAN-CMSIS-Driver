@@ -69,7 +69,6 @@
 #define CANIFCMSK_WRNRD_Pos 7
 #define CANIFCMSK_WRNRD_Msk (1 << CANIFCMSK_WRNRD_Pos)
 
-
 #define CANIFCRQ_MNUM_Pos 0
 #define CANIFCRQ_MNUM_Msk (0x3F << CANIFCRQ_MNUM_Pos)
 #define CANIFCRQ_BUSY_Pos 15
@@ -85,12 +84,12 @@
 #define CANIFMSK2_MXTD_Pos 15
 #define CANIFMSK2_MXTD_Msk (0x1 << CANIFMSK2_MXTD_Pos)
 
-#define CANIFARB1_XTD_Pos 0
-#define CANIFARB1_XTD_Msk (0xFFFF << CANIFMSK1_XTD_Pos)
-#define CANIFARB2_XTD_Pos 0
-#define CANIFARB2_STD_Pos 2
+#define CANIFARB1_XTDID_Pos 0
+#define CANIFARB1_XTDID_Msk (0xFFFF << CANIFARB1_XTDID_Pos)
+#define CANIFARB2_XTDID_Pos 0
+#define CANIFARB2_STDID_Pos 2
 #define CANIFARB2_ID_Pos 0
-#define CANIFARB2_ID_Msk (0x1FFF << CANIFMSK2_ID_Pos)
+#define CANIFARB2_ID_Msk (0x1FFF << CANIFARB2_ID_Pos)
 #define CANIFARB2_DIR_Pos 13
 #define CANIFARB2_DIR_Msk (0x1 << CANIFARB2_DIR_Pos)
 #define CANIFARB2_XTD_Pos 14
@@ -146,13 +145,13 @@ typedef struct {
 typedef struct {
   uint32_t XRQ1;
   uint32_t XRQ2;
-  uint32_t reserved0[0x1B];
+  uint32_t reserved0[0x6];
   uint32_t NWDA1;
   uint32_t NWDA2;
-  uint32_t reserved1[0x1B];
+  uint32_t reserved1[0x6];
   uint32_t MSG1INT;
   uint32_t MSG2INT;
-  uint32_t reserved2[0x1B];
+  uint32_t reserved2[0x6];
   uint32_t MSG1VAL;
   uint32_t MSG2VAL;
 } CanMsgObj_t;
@@ -161,9 +160,9 @@ typedef struct {
   CanCtl_t CTL;
   uint32_t reserved0;
   CanIf_t IF1;
-  uint32_t reserved1[0x37];
+  uint32_t reserved1[0xD];
   CanIf_t IF2;
-  uint32_t reserved2[0x57];
+  uint32_t reserved2[0x15];
   CanMsgObj_t MSGOBJ;
 } CanHandle_t;
 

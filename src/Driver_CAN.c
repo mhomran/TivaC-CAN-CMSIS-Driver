@@ -56,10 +56,10 @@ static int32_t Can_RemoveFilterExactId(volatile CanHandle_t* CAN, uint32_t ObjId
 static int32_t Can_SetFilterMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id, uint32_t Mask);
 static int32_t Can_RemoveFilterMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t Id, uint32_t Mask);
 static int32_t Can_WriteReadMsgObj(volatile CanHandle_t* CAN, MsgObjWR_t Flag, uint32_t ObjIdx, uint32_t Mask);
-static int32_t Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdId);
-static int32_t Can_SetStdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdId);
-static int32_t Can_SetXtdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdMask);
-static int32_t Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdMask);
+static int32_t Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t XtdId);
+static int32_t Can_SetStdId(volatile CanHandle_t* CAN, uint32_t StdId);
+static int32_t Can_SetXtdMask(volatile CanHandle_t* CAN, uint32_t XtdMask);
+static int32_t Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t StdMask);
 static int32_t
 ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
                         uint32_t ObjIdx,
@@ -80,6 +80,21 @@ static int32_t
 ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
                          uint32_t ObjIdx, 
                          ARM_CAN_OBJ_CONFIG ObjCfg); 
+
+static int32_t 
+ARM_CAN0_MessageSend(uint32_t ObjIdx, 
+                     ARM_CAN_MSG_INFO *MsgInfo, 
+                     const uint8_t *Data, 
+                     uint8_t Size);
+static int32_t 
+ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
+                    uint32_t ObjIdx, 
+                    ARM_CAN_MSG_INFO *MsgInfo, 
+                    const uint8_t *Data, 
+                    uint8_t Size); 
+
+static void Can_SetData(volatile CanHandle_t* CAN, const uint8_t *Data, uint8_t Size);
+
 // Driver Capabilities
 static const ARM_CAN_CAPABILITIES can_driver_capabilities = {
   32U,  // Number of CAN Objects available
@@ -111,6 +126,7 @@ static uint8_t                     can_driver_initialized = 0U;
 static ARM_CAN_SignalUnitEvent_t   CAN_SignalUnitEvent    = NULL;
 static ARM_CAN_SignalObjectEvent_t CAN_SignalObjectEvent  = NULL;
 static CanFilter_t gFilters[MAX_OBJ_NUM];
+static ARM_CAN_OBJ_CONFIG gObjCfgs[MAX_OBJ_NUM];
 
 //
 //   Functions prototypes
@@ -164,6 +180,7 @@ static int32_t ARM_CAN_PowerControl (ARM_POWER_STATE state) {
       // ..
       SRCAN |= 1 << SRCAN_CAN0; //reset
       Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_SET, 0xFFFF);
+      SRCAN &= ~(1 << SRCAN_CAN0);
 
       RCGCCAN &= ~(1 << RCGCCAN_CAN0); //disable clock
       Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_CLEAR, 0xFFFF);
@@ -353,7 +370,7 @@ static int32_t
 ARM_CAN0_ObjectConfigure (uint32_t ObjIdx, 
                          ARM_CAN_OBJ_CONFIG ObjCfg) 
 {
-  ARM_CAN_ObjectConfigure(CAN0, ObjIdx, ObjCfg);
+  return ARM_CAN_ObjectConfigure(CAN0, ObjIdx, ObjCfg);
 }
 static int32_t 
 ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
@@ -396,17 +413,71 @@ ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
    CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk);
   if(state != ARM_DRIVER_OK) return state;
   
+  gObjCfgs[ObjIdx] = ObjCfg;
+
   return ARM_DRIVER_OK;
 }
 
-static int32_t ARM_CAN_MessageSend (uint32_t ObjIdx, ARM_CAN_MSG_INFO *msg_info, const uint8_t *data, uint8_t size) {
+static int32_t 
+ARM_CAN0_MessageSend(uint32_t ObjIdx, 
+                     ARM_CAN_MSG_INFO *MsgInfo, 
+                     const uint8_t *Data, 
+                     uint8_t Size) 
+{
+  return ARM_CAN_MessageSend(CAN0, ObjIdx, MsgInfo, Data, Size);
+}
 
+static int32_t 
+ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
+                    uint32_t ObjIdx, 
+                    ARM_CAN_MSG_INFO *MsgInfo, 
+                    const uint8_t *Data, 
+                    uint8_t Size) 
+{
+  int32_t state;
+  
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
-  // Add code to send requested message
-  // ..
+  if(
+     (gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX_RTR_RX_DATA && gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX) ||
+     (gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX_RTR_RX_DATA && MsgInfo->rtr != 1) ||
+     (MsgInfo == NULL) || (Data == NULL) || (MsgInfo->dlc > 8) || (MsgInfo->dlc < 1)
+     )
+    {
+      return ARM_DRIVER_ERROR_SPECIFIC;
+    }
+  
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx,
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | CANIFCMSK_DATAB_Msk);
+  if(state != ARM_DRIVER_OK) return state;
 
-  return ((int32_t)size);
+  if(MsgInfo->id & ARM_CAN_ID_IDE_Msk)
+    {
+      state = Can_SetXtdId(CAN, MsgInfo->id & ~(ARM_CAN_ID_IDE_Msk));
+      if(state != ARM_DRIVER_OK) return state;
+    }
+  else
+    {
+      state = Can_SetStdId(CAN, MsgInfo->id);
+      if(state != ARM_DRIVER_OK) return state;
+    }
+
+  if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX) Can_SetData(CAN, Data, Min(MsgInfo->dlc, Size));
+
+  CAN->IF1.MCTL |= CANIFMCTL_TXRQST_Msk;
+
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx,
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | CANIFCMSK_DATAB_Msk);
+  if(state != ARM_DRIVER_OK) return state;
+
+  if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX)
+    {
+      return ((int32_t)Min(MsgInfo->dlc, Size));
+    }
+  else 
+    {
+      return 0;
+    }
 }
 
 static int32_t ARM_CAN_MessageRead (uint32_t ObjIdx, ARM_CAN_MSG_INFO *msg_info, uint8_t *data, uint8_t size) {
@@ -550,18 +621,18 @@ Can_SetFilterMask(volatile CanHandle_t* CAN,
 
   if(Id & ARM_CAN_ID_IDE_Msk)
     {
-      state = Can_SetXtdMask(CAN, ObjIdx, Mask);
+      state = Can_SetXtdMask(CAN, Mask);
       if(state != ARM_DRIVER_OK) return state;
 
-      state = Can_SetXtdId(CAN, ObjIdx, Id & ~(ARM_CAN_ID_IDE_Msk));
+      state = Can_SetXtdId(CAN, Id & ~(ARM_CAN_ID_IDE_Msk));
       if(state != ARM_DRIVER_OK) return state;
     }
   else
     {
-      state = Can_SetStdMask(CAN, ObjIdx, Mask);
+      state = Can_SetStdMask(CAN, Mask);
       if(state != ARM_DRIVER_OK) return state;
 
-      state = Can_SetStdId(CAN, ObjIdx, Id);
+      state = Can_SetStdId(CAN, Id);
       if(state != ARM_DRIVER_OK) return state;
     }
 
@@ -618,7 +689,7 @@ Can_WriteReadMsgObj(volatile CanHandle_t* CAN, MsgObjWR_t Flag, uint32_t ObjIdx,
 }
 
 static int32_t 
-Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdId)
+Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t XtdId)
 {
   if(XtdId > MAX_XTD_ID)
     {
@@ -626,17 +697,17 @@ Can_SetXtdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdId)
     }
   else
     {
-      CAN->IF1.ARB1 &= ~CANIFARB1_XTD_Msk;
+      CAN->IF1.ARB1 &= ~CANIFARB1_XTDID_Msk;
       CAN->IF1.ARB2 &= ~CANIFARB2_ID_Msk;
-      CAN->IF1.ARB1 |= (XtdId & 0xFFFF) << CANIFARB1_XTD_Pos;
-      CAN->IF1.ARB2 |= (XtdId >> 16) << CANIFARB2_XTD_Pos;
+      CAN->IF1.ARB1 |= (XtdId & 0xFFFF) << CANIFARB1_XTDID_Pos;
+      CAN->IF1.ARB2 |= (XtdId >> 16) << CANIFARB2_XTDID_Pos;
       CAN->IF1.ARB2 |= CANIFARB2_XTD_Msk;
       return ARM_DRIVER_OK;
     }
 }
 
 static int32_t 
-Can_SetStdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdId)
+Can_SetStdId(volatile CanHandle_t* CAN, uint32_t StdId)
 {
   if(StdId > MAX_STD_ID)
     {
@@ -645,14 +716,14 @@ Can_SetStdId(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdId)
   else
     {
       CAN->IF1.ARB2 &= ~CANIFARB2_ID_Msk;
-      CAN->IF1.ARB2 |= StdId << CANIFARB2_STD_Pos;
+      CAN->IF1.ARB2 |= StdId << CANIFARB2_STDID_Pos;
       CAN->IF1.ARB2 &= ~(1 << CANIFARB2_XTD_Pos);
       return ARM_DRIVER_OK;
     }
 }
 
 static int32_t 
-Can_SetXtdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdMask)
+Can_SetXtdMask(volatile CanHandle_t* CAN, uint32_t XtdMask)
 {
   if(XtdMask > MAX_XTD_ID)
     {
@@ -669,7 +740,7 @@ Can_SetXtdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t XtdMask)
 }
 
 static int32_t 
-Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdMask)
+Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t StdMask)
 {
   if(StdMask > MAX_STD_ID)
     {
@@ -681,6 +752,41 @@ Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t ObjIdx, uint32_t StdMask)
       CAN->IF1.MSK2 &= ~CANIFMSK2_ID_Msk;
       CAN->IF1.MSK2 |= StdMask << CANIFMSK2_STD_Pos;
       return ARM_DRIVER_OK;
+    }
+}
+
+static void 
+Can_SetData(volatile CanHandle_t* CAN,
+            const uint8_t *Data, 
+            uint8_t Size)
+{
+  uint8_t i;
+
+  CAN->IF1.MCTL &= ~(CANIFMCTL_DLC_Msk);
+  CAN->IF1.MCTL |= Size << CANIFMCTL_DLC_Pos;
+  CAN->IF1.DA1 &= ~(0xFFFF);
+  CAN->IF1.DA2 &= ~(0xFFFF);
+  CAN->IF1.DB1 &= ~(0xFFFF);
+  CAN->IF1.DB2 &= ~(0xFFFF);
+
+  for(i = 0; i < Size; i++)
+    {
+      if(i < 2)
+        {
+          CAN->IF1.DA1 |= Data[i] << ((i % 2) * 8);
+        }
+      else if(i < 4)
+        {
+          CAN->IF1.DA2 |= Data[i] << ((i % 2) * 8);
+        }
+      else if(i < 6)
+        {
+          CAN->IF1.DB1 |= Data[i] << ((i % 2) * 8);
+        }
+      else
+        {
+          CAN->IF1.DB2 |= Data[i] << ((i % 2) * 8);
+        }
     }
 }
 
@@ -704,7 +810,7 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN_ObjectGetCapabilities,
   ARM_CAN0_ObjectSetFilter,
   ARM_CAN0_ObjectConfigure,
-  ARM_CAN_MessageSend,
+  ARM_CAN0_MessageSend,
   ARM_CAN_MessageRead,
   ARM_CAN_Control,
   ARM_CAN_GetStatus
