@@ -381,9 +381,16 @@ ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
 
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
+  //stop the message by marking it as invalid
   state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx,
    CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk);
   if(state != ARM_DRIVER_OK) return state;
+
+  CAN->IF1.ARB2 &= ~CANIFARB2_MSGVAL_Msk;
+
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx,
+     CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk);
+    if(state != ARM_DRIVER_OK) return state;
 
   switch (ObjCfg) {
     case ARM_CAN_OBJ_INACTIVE:
@@ -391,19 +398,25 @@ ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
       break;
     case ARM_CAN_OBJ_RX_RTR_TX_DATA:
       CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk | CANIFARB2_DIR_Msk;
-      CAN->IF1.MCTL |= CANIFMCTL_RMTEN_Msk;
+      CAN->IF1.MCTL &= ~CANIFMCTL_RXIE_Msk;
+      CAN->IF1.MCTL |= CANIFMCTL_RMTEN_Msk | CANIFMCTL_TXIE_Msk;
       break;
     case ARM_CAN_OBJ_TX_RTR_RX_DATA:
-      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
       CAN->IF1.ARB2 &= ~CANIFARB2_DIR_Msk;
+      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
+      CAN->IF1.MCTL &= ~(CANIFMCTL_RMTEN_Msk | CANIFMCTL_TXIE_Msk);
+      CAN->IF1.MCTL |= CANIFMCTL_RXIE_Msk;
       break;
     case ARM_CAN_OBJ_TX:
       CAN->IF1.ARB2 |= CANIFARB2_DIR_Msk | CANIFARB2_MSGVAL_Msk;
-      CAN->IF1.MCTL &= ~(CANIFMCTL_RMTEN_Msk | CANIFMCTL_UMASK_Msk);
+      CAN->IF1.MCTL &= ~(CANIFMCTL_RMTEN_Msk | CANIFMCTL_RXIE_Msk);
+      CAN->IF1.MCTL |= CANIFMCTL_TXIE_Msk;
       break;
     case ARM_CAN_OBJ_RX:
-      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
       CAN->IF1.ARB2 &= ~CANIFARB2_DIR_Msk;
+      CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
+      CAN->IF1.MCTL &= ~(CANIFMCTL_RMTEN_Msk | CANIFMCTL_TXIE_Msk);
+      CAN->IF1.MCTL |= CANIFMCTL_RXIE_Msk;
       break;
     default:
       return ARM_DRIVER_ERROR_UNSUPPORTED;
@@ -439,16 +452,27 @@ ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
   if(
-     (gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX_RTR_RX_DATA && gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX) ||
+     (gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX_RTR_RX_DATA &&
+      gObjCfgs[ObjIdx] != ARM_CAN_OBJ_TX &&
+      gObjCfgs[ObjIdx] != ARM_CAN_OBJ_RX_RTR_TX_DATA) ||
      (gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX_RTR_RX_DATA && MsgInfo->rtr != 1) ||
-     (MsgInfo == NULL) || (Data == NULL) || (MsgInfo->dlc > 8) || (MsgInfo->dlc < 1)
+     (MsgInfo == NULL) ||
+     (MsgInfo->dlc > 8 || MsgInfo->dlc < 1) ||
+     ((gObjCfgs[ObjIdx] == ARM_CAN_OBJ_RX_RTR_TX_DATA || gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX) &&
+     (Data == NULL))
      )
     {
       return ARM_DRIVER_ERROR_SPECIFIC;
     }
   
   state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx,
-   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | CANIFCMSK_DATAB_Msk);
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | 
+   CANIFCMSK_DATAB_Msk | CANIFCMSK_MASK_Msk);
+  if(state != ARM_DRIVER_OK) return state;
+
+  //Make sure the message is invalid before configuration
+  CAN->IF1.ARB2 &= ~CANIFARB2_MSGVAL_Msk;
+  state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx, CANIFCMSK_ARB_Msk);
   if(state != ARM_DRIVER_OK) return state;
 
   if(MsgInfo->id & ARM_CAN_ID_IDE_Msk)
@@ -462,12 +486,28 @@ ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
       if(state != ARM_DRIVER_OK) return state;
     }
 
-  if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX) Can_SetData(CAN, Data, Min(MsgInfo->dlc, Size));
+  if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX || 
+     gObjCfgs[ObjIdx] == ARM_CAN_OBJ_RX_RTR_TX_DATA) 
+    {
+      Can_SetData(CAN, Data, Min(MsgInfo->dlc, Size));
+    }
+  else
+   {
+      CAN->IF1.MCTL &= ~(CANIFMCTL_DLC_Msk);
+      CAN->IF1.MCTL |= MsgInfo->dlc << CANIFMCTL_DLC_Pos;
+   }
 
-  CAN->IF1.MCTL |= CANIFMCTL_TXRQST_Msk;
+  if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX ||
+     gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX_RTR_RX_DATA)
+    {
+        CAN->IF1.MCTL |= CANIFMCTL_TXRQST_Msk;
+    }
+
+  CAN->IF1.ARB2 |= CANIFARB2_MSGVAL_Msk;
 
   state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx,
-   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | CANIFCMSK_DATAB_Msk);
+   CANIFCMSK_ARB_Msk | CANIFCMSK_CONTROL_Msk | CANIFCMSK_DATAA_Msk | 
+   CANIFCMSK_DATAB_Msk | CANIFCMSK_MASK_Msk);
   if(state != ARM_DRIVER_OK) return state;
 
   if(gObjCfgs[ObjIdx] == ARM_CAN_OBJ_TX)
