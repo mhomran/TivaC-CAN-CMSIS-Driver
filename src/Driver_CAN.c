@@ -101,6 +101,7 @@ ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
                     uint8_t Size); 
 
 static void Can_SetData(volatile CanHandle_t* CAN, const uint8_t *Data, uint8_t Size);
+static void Can_ReadData(volatile CanHandle_t* CAN, uint8_t *Data, uint8_t Size);
 
 void CAN_Handler(volatile CanHandle_t* CAN);
 void CAN0_Handler(void);
@@ -602,6 +603,7 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
                     uint8_t Size) 
 {
   int32_t state;
+  uint8_t dlc;
   uint8_t CANIdx = Can_GetControllerIdx(CAN);
 
   if (can_driver_powered == 0U) return ARM_DRIVER_ERROR;
@@ -624,8 +626,18 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
       {
         return ARM_DRIVER_ERROR_SPECIFIC;
       }
+    else
+      {
+        CAN->IF1.MCTL &= ~CANIFMCTL_NEWDAT_Msk;
 
-  return ((int32_t)Size);
+        dlc = (CAN->IF1.MCTL & CANIFMCTL_DLC_Msk) >> CANIFMCTL_DLC_Pos;
+        Can_ReadData(CAN, Data, Min(dlc, Size));
+      }
+
+    state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, ObjIdx, CANIFCMSK_CONTROL_Msk);
+    if(state != ARM_DRIVER_OK) return state;
+
+  return ((int32_t)Min(dlc, Size));
 }
 
 static int32_t ARM_CAN_Control (uint32_t control, uint32_t arg) {
@@ -901,6 +913,34 @@ Can_SetStdMask(volatile CanHandle_t* CAN, uint32_t StdMask)
 }
 
 static void 
+Can_ReadData(volatile CanHandle_t* CAN,
+             uint8_t *Data, 
+             uint8_t Size)
+{
+  uint8_t i;
+
+  for(i = 0; i < Size; i++)
+    {
+      if(i < 2)
+        {
+          Data[i] = (uint8_t)((CAN->IF1.DA1 >> ((i % 2) * 8)) & 0xFF);
+        }
+      else if(i < 4)
+        {
+          Data[i] = (uint8_t)((CAN->IF1.DA2 >> ((i % 2) * 8)) & 0xFF);
+        }
+      else if(i < 6)
+        {
+          Data[i] = (uint8_t)((CAN->IF1.DB1 >> ((i % 2) * 8)) & 0xFF);
+        }
+      else
+        {
+          Data[i] = (uint8_t)((CAN->IF1.DB2 >> ((i % 2) * 8)) & 0xFF);
+        }
+    }
+}
+
+static void 
 Can_SetData(volatile CanHandle_t* CAN,
             const uint8_t *Data, 
             uint8_t Size)
@@ -1001,13 +1041,12 @@ CAN_Handler(volatile CanHandle_t* CAN)
         {
           if(CAN->IF1.MCTL & CANIFMCTL_NEWDAT_Msk)
               {
-                CAN->IF1.MCTL &= ~CANIFMCTL_NEWDAT_Msk;
                 CAN_SignalObjectEvent[CANIdx](ObjIdx, ARM_CAN_EVENT_RECEIVE);
               }
           if(CAN->IF1.MCTL & CANIFMCTL_MSGLST_Msk)
               {
-                CAN->IF1.MCTL &= ~CANIFMCTL_MSGLST_Msk;
                 CAN_SignalObjectEvent[CANIdx](ObjIdx, ARM_CAN_EVENT_RECEIVE_OVERRUN);
+                CAN->IF1.MCTL &= ~CANIFMCTL_MSGLST_Msk;
               }
         }
 
