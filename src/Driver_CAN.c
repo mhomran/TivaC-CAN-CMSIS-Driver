@@ -114,12 +114,24 @@ static int32_t
 ARM_CAN0_Initialize(ARM_CAN_SignalUnitEvent_t cb_unit_event,
                     ARM_CAN_SignalObjectEvent_t cb_object_event);
 static int32_t
+ARM_CAN1_Initialize(ARM_CAN_SignalUnitEvent_t cb_unit_event,
+                    ARM_CAN_SignalObjectEvent_t cb_object_event);
+static int32_t
 ARM_CAN_Initialize(uint8_t CANIdx,
                    ARM_CAN_SignalUnitEvent_t cb_unit_event,
                    ARM_CAN_SignalObjectEvent_t cb_object_event);
+static int32_t ARM_CAN0_Uninitialize (void);
+static int32_t ARM_CAN1_Uninitialize (void);
+static int32_t ARM_CAN_Uninitialize (volatile CanHandle_t* CAN);
+
 uint8_t Can_GetControllerIdx(volatile CanHandle_t* CAN);
 static int32_t
 ARM_CAN0_MessageRead(uint32_t ObjIdx,
+                     ARM_CAN_MSG_INFO *MsgInfo,
+                     uint8_t *Data,
+                     uint8_t Size);
+static int32_t
+ARM_CAN1_MessageRead(uint32_t ObjIdx,
                      ARM_CAN_MSG_INFO *MsgInfo,
                      uint8_t *Data,
                      uint8_t Size);
@@ -131,10 +143,26 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
                     uint8_t *Data,
                     uint8_t Size);
 static int32_t ARM_CAN0_Control(uint32_t control, uint32_t arg);
+static int32_t ARM_CAN1_Control(uint32_t control, uint32_t arg);
 static int32_t ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg);
 
 static ARM_CAN_STATUS ARM_CAN0_GetStatus (void);
+static ARM_CAN_STATUS ARM_CAN1_GetStatus (void);
 static ARM_CAN_STATUS ARM_CAN_GetStatus (volatile CanHandle_t* CAN);
+
+static int32_t 
+ARM_CAN0_SetBitrate (ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments);
+static int32_t 
+ARM_CAN1_SetBitrate (ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments);
+static int32_t 
+ARM_CAN_SetBitrate (volatile CanHandle_t* CAN,
+                    ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments);
 // module variable definitons
 
 //driver version
@@ -166,8 +194,8 @@ static const ARM_CAN_OBJ_CAPABILITIES can_object_capabilities = {
   0U    // Reserved (must be zero)
 };
 
-static uint8_t                     can_driver_powered     = 0U;
-static uint8_t                     can_driver_initialized = 0U;
+static uint8_t                     can_driver_powered[MAX_CAN_CONTROLLERS];
+static uint8_t                     can_driver_initialized[MAX_CAN_CONTROLLERS];
 static ARM_CAN_SignalUnitEvent_t   CAN_SignalUnitEvent[MAX_CAN_CONTROLLERS];
 static ARM_CAN_SignalObjectEvent_t CAN_SignalObjectEvent[MAX_CAN_CONTROLLERS];
 static CanFilter_t gFilters[MAX_CAN_CONTROLLERS][MAX_OBJ_NUM];
@@ -193,6 +221,13 @@ ARM_CAN0_Initialize(ARM_CAN_SignalUnitEvent_t cb_unit_event,
                     ARM_CAN_SignalObjectEvent_t cb_object_event)
 {
   return ARM_CAN_Initialize(0, cb_unit_event, cb_object_event);
+}
+
+static int32_t 
+ARM_CAN1_Initialize(ARM_CAN_SignalUnitEvent_t cb_unit_event,
+                    ARM_CAN_SignalObjectEvent_t cb_object_event)
+{
+  return ARM_CAN_Initialize(1, cb_unit_event, cb_object_event);
 } 
 
 static int32_t 
@@ -200,19 +235,31 @@ ARM_CAN_Initialize(uint8_t CANIdx,
                    ARM_CAN_SignalUnitEvent_t cb_unit_event,
                    ARM_CAN_SignalObjectEvent_t cb_object_event) 
 {
-
-  if (can_driver_initialized != 0U) return ARM_DRIVER_OK;
+  if (can_driver_initialized[CANIdx] != 0U) return ARM_DRIVER_OK;
 
   CAN_SignalUnitEvent[CANIdx]   = cb_unit_event;
   CAN_SignalObjectEvent[CANIdx] = cb_object_event;
 
-  can_driver_initialized = 1U;
+  can_driver_initialized[CANIdx] = 1U;
 
   return ARM_DRIVER_OK;
 }
 
-static int32_t ARM_CAN_Uninitialize (void) {
-  can_driver_initialized = 0U;
+static int32_t 
+ARM_CAN0_Uninitialize (void) 
+{
+  return ARM_CAN_Uninitialize(CAN0);
+}
+static int32_t 
+ARM_CAN1_Uninitialize (void) 
+{
+  return ARM_CAN_Uninitialize(CAN1);
+}
+static int32_t 
+ARM_CAN_Uninitialize (volatile CanHandle_t* CAN) 
+{
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
+  can_driver_initialized[CANIdx] = 0U;
 
   return ARM_DRIVER_OK;
 }
@@ -221,6 +268,11 @@ static int32_t
 ARM_CAN0_PowerControl (ARM_POWER_STATE state) 
 {
   return ARM_CAN_PowerControl(CAN0, state);
+}
+static int32_t 
+ARM_CAN1_PowerControl (ARM_POWER_STATE state) 
+{
+  return ARM_CAN_PowerControl(CAN1, state);
 }
 
 static int32_t 
@@ -231,21 +283,21 @@ ARM_CAN_PowerControl (volatile CanHandle_t* CAN,
 
   switch (state) {
     case ARM_POWER_OFF:
-      can_driver_powered = 0U;
+      can_driver_powered[CANIdx] = 0U;
       // Add code to disable interrupts and put peripheral into reset mode,
       // and if possible disable clock
       // ..
-      SRCAN |= 1 << SRCAN_CAN0; //reset
-      Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_SET, 0xFFFF);
-      SRCAN &= ~(1 << SRCAN_CAN0);
+      SRCAN |= 1 << CANIdx; //reset
+      Can_SetTimeout(&PRCAN, CANIdx, CAN_FLAG_SET, 0xFFFF);
+      SRCAN &= ~(1 << CANIdx);
 
-      RCGCCAN &= ~(1 << RCGCCAN_CAN0); //disable clock
-      Can_SetTimeout(&PRCAN, PRCAN_CAN0, CAN_FLAG_CLEAR, 0xFFFF);
+      RCGCCAN &= ~(1 << CANIdx); //disable clock
+      Can_SetTimeout(&PRCAN, CANIdx, CAN_FLAG_CLEAR, 0xFFFF);
       break;
 
     case ARM_POWER_FULL:
-      if (can_driver_initialized == 0U) { return ARM_DRIVER_ERROR; }
-      if (can_driver_powered     != 0U) { return ARM_DRIVER_OK;    }
+      if (can_driver_initialized[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
+      if (can_driver_powered[CANIdx]     != 0U) { return ARM_DRIVER_OK;    }
       
       uint8_t i;
       // Add code to enable clocks, reset variables enable interrupts
@@ -259,8 +311,8 @@ ARM_CAN_PowerControl (volatile CanHandle_t* CAN,
       //enable interrupt in NVIC
       NVICEN1 |= 1 << (NVICEN1_CAN0 + CANIdx);
 
-      can_driver_powered = 1U;
-      can_driver_initialized = 0U;
+      can_driver_powered[CANIdx] = 1U;
+      can_driver_initialized[CANIdx] = 0U;
       for(i = 0; i < MAX_OBJ_NUM; i++)
         {
           gFilters[CANIdx][i].Valid = INVALID_FILTER;
@@ -281,19 +333,36 @@ static uint32_t ARM_CAN_GetClock (void) {
     return 0;
 }
 
-static int32_t ARM_CAN_SetBitrate (ARM_CAN_BITRATE_SELECT select, uint32_t bitrate, uint32_t bit_segments) {
+static int32_t 
+ARM_CAN0_SetBitrate (ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments) 
+{
+  return ARM_CAN_SetBitrate(CAN0, select, bitrate, bit_segments);
+}
+static int32_t 
+ARM_CAN1_SetBitrate (ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments) 
+{
+  return ARM_CAN_SetBitrate(CAN1, select, bitrate, bit_segments);
+}
 
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
-
-  // Add code to setup peripheral parameters to generate specified bitrate
-  // with specified bit segments
-  // ..
+static int32_t 
+ARM_CAN_SetBitrate (volatile CanHandle_t* CAN,
+                    ARM_CAN_BITRATE_SELECT select,
+                    uint32_t bitrate,
+                    uint32_t bit_segments) 
+{
   uint32_t BRP;
   uint32_t Phase1;
   uint32_t Phase2;
   uint32_t Prop;
   uint32_t SJW;
   uint32_t N;
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
+
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   if(bitrate == 0 || bitrate > (2000000UL))
     {
@@ -348,10 +417,16 @@ ARM_CAN0_SetMode(ARM_CAN_MODE mode)
 {
   return ARM_CAN_SetMode(CAN0, mode);
 }
+static int32_t 
+ARM_CAN1_SetMode(ARM_CAN_MODE mode) 
+{
+  return ARM_CAN_SetMode(CAN1, mode);
+}
 
 static int32_t ARM_CAN_SetMode (volatile CanHandle_t* CAN, ARM_CAN_MODE mode) {
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
 
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   switch (mode) {
     case ARM_CAN_MODE_INITIALIZATION:
@@ -403,6 +478,14 @@ ARM_CAN0_ObjectSetFilter(uint32_t ObjIdx,
 {
   return ARM_CAN_ObjectSetFilter(CAN0, ObjIdx, operation, id, arg);
 }
+static int32_t 
+ARM_CAN1_ObjectSetFilter(uint32_t ObjIdx,
+                         ARM_CAN_FILTER_OPERATION operation, 
+                         uint32_t id, 
+                         uint32_t arg) 
+{
+  return ARM_CAN_ObjectSetFilter(CAN1, ObjIdx, operation, id, arg);
+}
 
 static int32_t 
 ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
@@ -411,7 +494,8 @@ ARM_CAN_ObjectSetFilter(volatile CanHandle_t* CAN,
                         uint32_t id, 
                         uint32_t arg) 
 {
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   switch (operation) {
     case ARM_CAN_FILTER_ID_EXACT_ADD:
@@ -434,13 +518,20 @@ ARM_CAN0_ObjectConfigure (uint32_t ObjIdx,
   return ARM_CAN_ObjectConfigure(CAN0, ObjIdx, ObjCfg);
 }
 static int32_t 
+ARM_CAN1_ObjectConfigure (uint32_t ObjIdx, 
+                         ARM_CAN_OBJ_CONFIG ObjCfg) 
+{
+  return ARM_CAN_ObjectConfigure(CAN1, ObjIdx, ObjCfg);
+}
+static int32_t 
 ARM_CAN_ObjectConfigure (volatile CanHandle_t* CAN,
                          uint32_t ObjIdx, 
                          ARM_CAN_OBJ_CONFIG ObjCfg) 
 {
   int32_t state;
-  uint8_t CANIdx;
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
+
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   //stop the message by marking it as invalid
   state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, ObjIdx,
@@ -502,6 +593,14 @@ ARM_CAN0_MessageSend(uint32_t ObjIdx,
 {
   return ARM_CAN_MessageSend(CAN0, ObjIdx, MsgInfo, Data, Size);
 }
+static int32_t 
+ARM_CAN1_MessageSend(uint32_t ObjIdx, 
+                     ARM_CAN_MSG_INFO *MsgInfo, 
+                     const uint8_t *Data, 
+                     uint8_t Size) 
+{
+  return ARM_CAN_MessageSend(CAN1, ObjIdx, MsgInfo, Data, Size);
+}
 
 static int32_t 
 ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
@@ -513,7 +612,7 @@ ARM_CAN_MessageSend(volatile CanHandle_t* CAN,
   int32_t state;
   uint8_t CANIdx = Can_GetControllerIdx(CAN);
   
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   if(
      (gObjCfgs[CANIdx][ObjIdx] != ARM_CAN_OBJ_TX_RTR_RX_DATA &&
@@ -598,6 +697,14 @@ ARM_CAN0_MessageRead(uint32_t ObjIdx,
 {
   return ARM_CAN_MessageRead(CAN0, ObjIdx, MsgInfo, Data, Size);
 }
+static int32_t 
+ARM_CAN1_MessageRead(uint32_t ObjIdx, 
+                     ARM_CAN_MSG_INFO *MsgInfo, 
+                     uint8_t *Data, 
+                     uint8_t Size) 
+{
+  return ARM_CAN_MessageRead(CAN1, ObjIdx, MsgInfo, Data, Size);
+}
 
 static int32_t 
 ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
@@ -610,7 +717,7 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
   uint8_t dlc;
   uint8_t CANIdx = Can_GetControllerIdx(CAN);
 
-  if (can_driver_powered == 0U) return ARM_DRIVER_ERROR;
+  if (can_driver_powered[CANIdx] == 0U) return ARM_DRIVER_ERROR;
 
   if(
     (gObjCfgs[CANIdx][ObjIdx] != ARM_CAN_OBJ_TX_RTR_RX_DATA &&
@@ -647,13 +754,20 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
 static int32_t 
 ARM_CAN0_Control(uint32_t control, uint32_t arg) 
 {
-  ARM_CAN_Control(CAN0, control, arg);
+  return ARM_CAN_Control(CAN0, control, arg);
+}
+static int32_t 
+ARM_CAN1_Control(uint32_t control, uint32_t arg) 
+{
+  return ARM_CAN_Control(CAN1, control, arg);
 }
 static int32_t 
 ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg) 
 {
   int32_t state;
-  if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
+  uint8_t CANIdx = Can_GetControllerIdx(CAN);
+
+  if (can_driver_powered[CANIdx] == 0U) { return ARM_DRIVER_ERROR; }
 
   switch (control & ARM_CAN_CONTROL_Msk) {
     case ARM_CAN_ABORT_MESSAGE_SEND:
@@ -685,6 +799,11 @@ static ARM_CAN_STATUS
 ARM_CAN0_GetStatus (void)
 {
   return ARM_CAN_GetStatus(CAN0);
+} 
+static ARM_CAN_STATUS 
+ARM_CAN1_GetStatus (void)
+{
+  return ARM_CAN_GetStatus(CAN1);
 } 
 
 static ARM_CAN_STATUS 
@@ -1074,7 +1193,7 @@ CAN_Handler(volatile CanHandle_t* CAN)
   uint32_t UnitSource;
   uint32_t ObjIdx;
   uint8_t CANIdx = Can_GetControllerIdx(CAN);
-  if (can_driver_powered == 0U) return;
+  if (can_driver_powered[CANIdx] == 0U) return;
   if(CAN_SignalObjectEvent[CANIdx] == NULL || CAN_SignalUnitEvent[CANIdx] == NULL) return;
 
   IntSource = CAN->CTL.INT;
@@ -1139,10 +1258,10 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN_GetVersion,
   ARM_CAN_GetCapabilities,
   ARM_CAN0_Initialize,
-  ARM_CAN_Uninitialize,
+  ARM_CAN0_Uninitialize,
   ARM_CAN0_PowerControl,
   ARM_CAN_GetClock,
-  ARM_CAN_SetBitrate,
+  ARM_CAN0_SetBitrate,
   ARM_CAN0_SetMode,
   ARM_CAN_ObjectGetCapabilities,
   ARM_CAN0_ObjectSetFilter,
@@ -1151,5 +1270,25 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN0_MessageRead,
   ARM_CAN0_Control,
   ARM_CAN0_GetStatus
+};
+
+extern \
+ARM_DRIVER_CAN Driver_CAN1;
+ARM_DRIVER_CAN Driver_CAN1 = {
+  ARM_CAN_GetVersion,
+  ARM_CAN_GetCapabilities,
+  ARM_CAN1_Initialize,
+  ARM_CAN1_Uninitialize,
+  ARM_CAN1_PowerControl,
+  ARM_CAN_GetClock,
+  ARM_CAN1_SetBitrate,
+  ARM_CAN1_SetMode,
+  ARM_CAN_ObjectGetCapabilities,
+  ARM_CAN1_ObjectSetFilter,
+  ARM_CAN1_ObjectConfigure,
+  ARM_CAN1_MessageSend,
+  ARM_CAN1_MessageRead,
+  ARM_CAN1_Control,
+  ARM_CAN1_GetStatus
 };
 
