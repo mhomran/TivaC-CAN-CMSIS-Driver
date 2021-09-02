@@ -184,10 +184,10 @@ typedef struct _ARM_CAN_STATUS {
 
 
 /****** CAN Unit Event *****/
-#define ARM_CAN_EVENT_UNIT_INACTIVE    (0U)             ///< Unit entered Inactive state
+//#define ARM_CAN_EVENT_UNIT_INACTIVE    (0U)             ///< Unit entered Inactive state
 #define ARM_CAN_EVENT_UNIT_ACTIVE      (1U)             ///< Unit entered Error Active state
 #define ARM_CAN_EVENT_UNIT_WARNING     (2U)             ///< Unit entered Error Warning state (one or both error counters >= 96)
-#define ARM_CAN_EVENT_UNIT_PASSIVE     (3U)             ///< Unit entered Error Passive state
+//#define ARM_CAN_EVENT_UNIT_PASSIVE     (3U)             ///< Unit entered Error Passive state
 #define ARM_CAN_EVENT_UNIT_BUS_OFF     (4U)             ///< Unit entered Bus-off state
 
 /****** CAN Send/Receive Event *****/

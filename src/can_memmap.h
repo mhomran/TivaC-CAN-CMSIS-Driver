@@ -44,6 +44,12 @@
 
 #define CANCTL_INIT_Pos 0
 #define CANCTL_INIT_Msk (1 << CANCTL_INIT_Pos)
+#define CANCTL_IE_Pos 1
+#define CANCTL_IE_Msk (1 << CANCTL_IE_Pos)
+#define CANCTL_SIE_Pos 2
+#define CANCTL_SIE_Msk (1 << CANCTL_SIE_Pos)
+#define CANCTL_EIE_Pos 3
+#define CANCTL_EIE_Msk (1 << CANCTL_EIE_Pos)
 #define CANCTL_CCE_Pos 6
 #define CANCTL_CCE_Msk (1 << CANCTL_CCE_Pos)
 #define CANCTL_TEST_Pos 7
@@ -51,6 +57,26 @@
 
 #define CANTST_LBACK_Pos 4
 #define CANTST_LBACK_Msk (1 << CANTST_LBACK_Pos)
+
+#define CANSTS_BOFF_Pos 7
+#define CANSTS_BOFF_Msk (0x1 << CANSTS_BOFF_Pos)
+#define CANSTS_EWARN_Pos 6
+#define CANSTS_EWARN_Msk (0x1 << CANSTS_EWARN_Pos)
+#define CANSTS_EPASS_Pos 5
+#define CANSTS_EPASS_Msk (0x1 << CANSTS_EPASS_Pos)
+
+#define CANERR_TEC_Pos 0
+#define CANERR_TEC_Msk (0xFF << CANERR_TEC_Pos)
+#define CANERR_REC_Pos 8
+#define CANERR_REC_Msk (0x7F << CANERR_REC_Pos)
+#define CANERR_RP_Pos 15
+#define CANERR_RP_Msk (0x1 << CANERR_RP_Pos)
+
+#define NVIC_BASE (0xE000E000)
+#define NVICEN1_OFFSET 0x104
+#define NVICEN1 *((volatile uint32_t*)(NVIC_BASE+NVICEN1_OFFSET)) 
+#define NVICEN1_CAN0 6
+#define NVICEN1_CAN1 7
 
 #define CANIFCMSK_DATAB_Pos 0
 #define CANIFCMSK_DATAB_Msk (1 << CANIFCMSK_DATAB_Pos)
