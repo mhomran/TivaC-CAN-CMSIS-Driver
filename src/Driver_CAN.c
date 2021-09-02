@@ -130,7 +130,8 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
                     ARM_CAN_MSG_INFO *MsgInfo,
                     uint8_t *Data,
                     uint8_t Size);
-
+static int32_t ARM_CAN0_Control(uint32_t control, uint32_t arg);
+static int32_t ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg);
 // module variable definitons
 
 //driver version
@@ -640,22 +641,34 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
   return ((int32_t)Min(dlc, Size));
 }
 
-static int32_t ARM_CAN_Control (uint32_t control, uint32_t arg) {
-
+static int32_t 
+ARM_CAN0_Control(uint32_t control, uint32_t arg) 
+{
+  ARM_CAN_Control(CAN0, control, arg);
+}
+static int32_t 
+ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg) 
+{
+  int32_t state;
   if (can_driver_powered == 0U) { return ARM_DRIVER_ERROR; }
 
   switch (control & ARM_CAN_CONTROL_Msk) {
     case ARM_CAN_ABORT_MESSAGE_SEND:
-      // Add code to abort message pending to be sent
-      // ..
+      state = Can_WriteReadMsgObj(CAN, MSG_OBJ_R, arg, CANIFCMSK_CONTROL_Msk);
+      if(state != ARM_DRIVER_OK) return state;
+      CAN->IF1.MCTL &= ~CANIFMCTL_TXRQST_Msk;
+      state = Can_WriteReadMsgObj(CAN, MSG_OBJ_W, arg, CANIFCMSK_CONTROL_Msk);
+      if(state != ARM_DRIVER_OK) return state;
       break;
-    case ARM_CAN_SET_FD_MODE:
-      // Add code to enable Flexible Data-rate mode
-      // ..
-      break;
-    case ARM_CAN_SET_TRANSCEIVER_DELAY:
-      // Add code to set transceiver delay
-      // ..
+    case ARM_CAN_CONTROL_RETRANSMISSION:
+      if(arg == 0)
+        {
+          CAN->CTL.CTL |= CANCTL_DAR_Msk;
+        }
+      else
+        {
+          CAN->CTL.CTL &= ~CANCTL_DAR_Msk;
+        }
       break;
     default:
       // Handle unknown control code
@@ -1077,7 +1090,7 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN0_ObjectConfigure,
   ARM_CAN0_MessageSend,
   ARM_CAN0_MessageRead,
-  ARM_CAN_Control,
+  ARM_CAN0_Control,
   ARM_CAN_GetStatus
 };
 

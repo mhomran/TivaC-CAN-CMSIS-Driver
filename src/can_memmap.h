@@ -50,6 +50,8 @@
 #define CANCTL_SIE_Msk (1 << CANCTL_SIE_Pos)
 #define CANCTL_EIE_Pos 3
 #define CANCTL_EIE_Msk (1 << CANCTL_EIE_Pos)
+#define CANCTL_DAR_Pos 5
+#define CANCTL_DAR_Msk (1 << CANCTL_DAR_Pos)
 #define CANCTL_CCE_Pos 6
 #define CANCTL_CCE_Msk (1 << CANCTL_CCE_Pos)
 #define CANCTL_TEST_Pos 7
