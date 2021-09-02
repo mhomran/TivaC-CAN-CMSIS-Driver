@@ -66,6 +66,17 @@
 #define CANSTS_EWARN_Msk (0x1 << CANSTS_EWARN_Pos)
 #define CANSTS_EPASS_Pos 5
 #define CANSTS_EPASS_Msk (0x1 << CANSTS_EPASS_Pos)
+#define CANSTS_LEC_Pos 0
+#define CANSTS_LEC_Msk (0x7 << CANSTS_LEC_Pos)
+
+#define CANSTS_LEC_NO_ERR 0
+#define CANSTS_LEC_STUFF_ERR 1
+#define CANSTS_LEC_FORMAT_ERR 2
+#define CANSTS_LEC_ACK_ERR 3
+#define CANSTS_LEC_BIT1_ERR 4
+#define CANSTS_LEC_BIT0_ERR 5
+#define CANSTS_LEC_CRC_ERR 6
+#define CANSTS_LEC_NOEVENT_ERR 7
 
 #define CANERR_TEC_Pos 0
 #define CANERR_TEC_Msk (0xFF << CANERR_TEC_Pos)

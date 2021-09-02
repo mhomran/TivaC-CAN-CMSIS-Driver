@@ -132,6 +132,9 @@ ARM_CAN_MessageRead(volatile CanHandle_t* CAN,
                     uint8_t Size);
 static int32_t ARM_CAN0_Control(uint32_t control, uint32_t arg);
 static int32_t ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg);
+
+static ARM_CAN_STATUS ARM_CAN0_GetStatus (void);
+static ARM_CAN_STATUS ARM_CAN_GetStatus (volatile CanHandle_t* CAN);
 // module variable definitons
 
 //driver version
@@ -678,14 +681,70 @@ ARM_CAN_Control (volatile CanHandle_t* CAN, uint32_t control, uint32_t arg)
   return ARM_DRIVER_OK;
 }
 
-static ARM_CAN_STATUS ARM_CAN_GetStatus (void) {
+static ARM_CAN_STATUS 
+ARM_CAN0_GetStatus (void)
+{
+  return ARM_CAN_GetStatus(CAN0);
+} 
 
-  // Add code to return device bus and error status
-  // ..
-    //stub
-    ARM_CAN_STATUS status;
-    status.unit_state = 0;
-    return status;
+static ARM_CAN_STATUS 
+ARM_CAN_GetStatus (volatile CanHandle_t* CAN) 
+{
+
+  ARM_CAN_STATUS status;
+  uint32_t LEC;
+  status.tx_error_count = (CAN->CTL.ERR & CANERR_TEC_Msk) >> CANERR_TEC_Pos;
+  status.rx_error_count = (CAN->CTL.ERR & CANERR_REC_Msk) >> CANERR_REC_Pos;
+
+  if(CAN->CTL.CTL & CANCTL_INIT_Msk)
+    {
+      status.unit_state = ARM_CAN_UNIT_STATE_INACTIVE;
+    }
+  else if(CAN->CTL.STS & CANSTS_BOFF_Msk)
+    {
+      status.unit_state = ARM_CAN_UNIT_STATE_BUS_OFF;
+    }
+  else if(CAN->CTL.ERR & CANERR_RP_Msk || status.tx_error_count > 127)
+    {
+      status.unit_state = ARM_CAN_UNIT_STATE_PASSIVE;
+    }
+  else
+    {
+      status.unit_state = ARM_CAN_UNIT_STATE_ACTIVE;
+    }
+
+  LEC = (CAN->CTL.STS & CANSTS_LEC_Msk) >> CANSTS_LEC_Pos;
+  switch(LEC)
+    {
+      case CANSTS_LEC_NO_ERR:
+      status.last_error_code = ARM_CAN_LEC_NO_ERROR;
+      break;
+      case CANSTS_LEC_STUFF_ERR:
+      status.last_error_code = ARM_CAN_LEC_STUFF_ERROR;
+      break;
+      case CANSTS_LEC_FORMAT_ERR:
+      status.last_error_code = ARM_CAN_LEC_FORM_ERROR;
+      break;
+      case CANSTS_LEC_ACK_ERR:
+      status.last_error_code = ARM_CAN_LEC_ACK_ERROR;
+      break;
+      case CANSTS_LEC_BIT1_ERR:
+      status.last_error_code = ARM_CAN_LEC_BIT_ERROR;
+      break;
+      case CANSTS_LEC_BIT0_ERR:
+      status.last_error_code = ARM_CAN_LEC_BIT_ERROR;
+      break;
+      case CANSTS_LEC_CRC_ERR:
+      status.last_error_code = ARM_CAN_LEC_CRC_ERROR;
+      break;
+      case CANSTS_LEC_NOEVENT_ERR:
+      status.last_error_code = ARM_CAN_LEC_NO_ERROR;
+      break;
+      default:
+      //not reachable
+      break;
+    }
+  return status;
 }
 
 /**
@@ -1091,6 +1150,6 @@ ARM_DRIVER_CAN Driver_CAN0 = {
   ARM_CAN0_MessageSend,
   ARM_CAN0_MessageRead,
   ARM_CAN0_Control,
-  ARM_CAN_GetStatus
+  ARM_CAN0_GetStatus
 };
 
